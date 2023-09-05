@@ -10,9 +10,6 @@
     `SubFigure`) with `Figure.add_subfigure` or `Figure.subfigures` methods
     (provisional API v3.4).
 
-`SubplotParams`
-    Control the default spacing between subplots.
-
 Figures are typically created using pyplot methods `~.pyplot.figure`,
 `~.pyplot.subplots`, and `~.pyplot.subplot_mosaic`.
 
@@ -51,7 +48,7 @@ import matplotlib.colorbar as cbar
 import matplotlib.image as mimage
 
 from matplotlib.axes import Axes
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, SubplotParams
 from matplotlib.layout_engine import (
     ConstrainedLayoutEngine, TightLayoutEngine, LayoutEngine,
     PlaceHolderLayoutEngine
@@ -116,66 +113,6 @@ class _AxesStack:
         next_counter = state.pop('_counter')
         vars(self).update(state)
         self._counter = itertools.count(next_counter)
-
-
-class SubplotParams:
-    """
-    A class to hold the parameters for a subplot.
-    """
-
-    def __init__(self, left=None, bottom=None, right=None, top=None,
-                 wspace=None, hspace=None):
-        """
-        Defaults are given by :rc:`figure.subplot.[name]`.
-
-        Parameters
-        ----------
-        left : float
-            The position of the left edge of the subplots,
-            as a fraction of the figure width.
-        right : float
-            The position of the right edge of the subplots,
-            as a fraction of the figure width.
-        bottom : float
-            The position of the bottom edge of the subplots,
-            as a fraction of the figure height.
-        top : float
-            The position of the top edge of the subplots,
-            as a fraction of the figure height.
-        wspace : float
-            The width of the padding between subplots,
-            as a fraction of the average Axes width.
-        hspace : float
-            The height of the padding between subplots,
-            as a fraction of the average Axes height.
-        """
-        for key in ["left", "bottom", "right", "top", "wspace", "hspace"]:
-            setattr(self, key, mpl.rcParams[f"figure.subplot.{key}"])
-        self.update(left, bottom, right, top, wspace, hspace)
-
-    def update(self, left=None, bottom=None, right=None, top=None,
-               wspace=None, hspace=None):
-        """
-        Update the dimensions of the passed parameters. *None* means unchanged.
-        """
-        if ((left if left is not None else self.left)
-                >= (right if right is not None else self.right)):
-            raise ValueError('left cannot be >= right')
-        if ((bottom if bottom is not None else self.bottom)
-                >= (top if top is not None else self.top)):
-            raise ValueError('bottom cannot be >= top')
-        if left is not None:
-            self.left = left
-        if right is not None:
-            self.right = right
-        if bottom is not None:
-            self.bottom = bottom
-        if top is not None:
-            self.top = top
-        if wspace is not None:
-            self.wspace = wspace
-        if hspace is not None:
-            self.hspace = hspace
 
 
 class FigureBase(Artist):
@@ -936,11 +873,25 @@ default: %(va)s
         """
         Remove the `~.axes.Axes` *ax* from the figure; update the current Axes.
         """
+        self._remove_axes(ax, owners=[self._axstack, self._localaxes])
 
-        self._axstack.remove(ax)
+    def _remove_axes(self, ax, owners):
+        """
+        Common helper for removal of standard axes (via delaxes) and of child axes.
+
+        Parameters
+        ----------
+        ax : `~.AxesBase`
+            The Axes to remove.
+        owners
+            List of objects (list or _AxesStack) "owning" the axes, from which the Axes
+            will be remove()d.
+        """
+        for owner in owners:
+            owner.remove(ax)
+
         self._axobservers.process("_axes_change_event", self)
         self.stale = True
-        self._localaxes.remove(ax)
         self.canvas.release_mouse(ax)
 
         for name in ax._axis_names:  # Break link between any shared axes
@@ -2421,7 +2372,7 @@ class Figure(FigureBase):
         frameon : bool, default: :rc:`figure.frameon`
             If ``False``, suppress drawing the figure background patch.
 
-        subplotpars : `SubplotParams`
+        subplotpars : `~matplotlib.gridspec.SubplotParams`
             Subplot parameters. If not given, the default subplot
             parameters :rc:`figure.subplot.*` are used.
 
@@ -2452,8 +2403,7 @@ None}, default: None
               to avoid overlapping axes decorations.  Can handle complex plot
               layouts and colorbars, and is thus recommended.
 
-              See :ref:`constrainedlayout_guide`
-              for examples.
+              See :ref:`constrainedlayout_guide` for examples.
 
             - 'compressed': uses the same algorithm as 'constrained', but
               removes extra space between fixed-aspect-ratio Axes.  Best for
@@ -2461,8 +2411,9 @@ None}, default: None
 
             - 'tight': Use the tight layout mechanism. This is a relatively
               simple algorithm that adjusts the subplot parameters so that
-              decorations do not overlap. See `.Figure.set_tight_layout` for
-              further details.
+              decorations do not overlap.
+
+              See :ref:`tight_layout_guide` for examples.
 
             - 'none': Do not use a layout engine.
 
@@ -2604,8 +2555,7 @@ None}, default: None
 
         Parameters
         ----------
-        layout: {'constrained', 'compressed', 'tight', 'none'} or \
-`LayoutEngine` or None
+        layout : {'constrained', 'compressed', 'tight', 'none', `.LayoutEngine`, None}
 
             - 'constrained' will use `~.ConstrainedLayoutEngine`
             - 'compressed' will also use `~.ConstrainedLayoutEngine`, but with
@@ -2613,6 +2563,8 @@ None}, default: None
               ratio Axes.
             - 'tight' uses `~.TightLayoutEngine`
             - 'none' removes layout engine.
+
+            If a `.LayoutEngine` instance, that instance will be used.
 
             If `None`, the behavior is controlled by :rc:`figure.autolayout`
             (which if `True` behaves as if 'tight' was passed) and
@@ -2623,7 +2575,7 @@ None}, default: None
             Users and libraries can define their own layout engines and pass
             the instance directly as well.
 
-        kwargs: dict
+        **kwargs
             The keyword arguments are passed to the layout engine to set things
             like padding and margin sizes.  Only used if *layout* is a string.
 
@@ -2774,12 +2726,7 @@ None}, default: None
                      pending=True)
     def set_tight_layout(self, tight):
         """
-        [*Discouraged*] Set whether and how `.tight_layout` is called when
-        drawing.
-
-        .. admonition:: Discouraged
-
-            This method is discouraged in favor of `~.set_layout_engine`.
+        Set whether and how `.tight_layout` is called when drawing.
 
         Parameters
         ----------
@@ -2808,8 +2755,7 @@ None}, default: None
                      pending=True)
     def set_constrained_layout(self, constrained):
         """
-        [*Discouraged*] Set whether ``constrained_layout`` is used upon
-        drawing.
+        Set whether ``constrained_layout`` is used upon drawing.
 
         If None, :rc:`figure.constrained_layout.use` value will be used.
 
@@ -2817,10 +2763,6 @@ None}, default: None
         the default ``constrained_layout`` paddings will be
         overridden.  These pads are in inches and default to 3.0/72.0.
         ``w_pad`` is the width padding and ``h_pad`` is the height padding.
-
-        .. admonition:: Discouraged
-
-            This method is discouraged in favor of `~.set_layout_engine`.
 
         Parameters
         ----------

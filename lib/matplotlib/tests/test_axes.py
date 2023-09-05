@@ -835,6 +835,12 @@ def test_errorbar_dashes(fig_test, fig_ref):
     ax_test.errorbar(x, y, xerr=np.abs(y), yerr=np.abs(y), dashes=[2, 2])
 
 
+def test_errorbar_mapview_kwarg():
+    D = {ii: ii for ii in range(10)}
+    fig, ax = plt.subplots()
+    ax.errorbar(x=D.keys(), y=D.values(), xerr=D.values())
+
+
 @image_comparison(['single_point', 'single_point'])
 def test_single_point():
     # Issue #1796: don't let lines.marker affect the grid
@@ -8685,6 +8691,14 @@ def test_cla_clears_children_axes_and_fig():
     for art in lines + [img]:
         assert art.axes is None
         assert art.figure is None
+
+
+def test_child_axes_removal():
+    fig, ax = plt.subplots()
+    marginal = ax.inset_axes([1, 0, .1, 1], sharey=ax)
+    marginal_twin = marginal.twinx()
+    marginal.remove()
+    ax.set(xlim=(-1, 1), ylim=(10, 20))
 
 
 def test_scatter_color_repr_error():

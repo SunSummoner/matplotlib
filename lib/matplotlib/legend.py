@@ -401,7 +401,7 @@ class Legend(Artist):
         parent : `~matplotlib.axes.Axes` or `.Figure`
             The artist that contains the legend.
 
-        handles : list of `.Artist`
+        handles : list of (`.Artist` or tuple of `.Artist`)
             A list of Artists (lines, patches) to be added to the legend.
 
         labels : list of str
@@ -642,7 +642,6 @@ class Legend(Artist):
         """
         a.set_figure(self.figure)
         if self.isaxes:
-            # a.set_axes(self.axes)
             a.axes = self.axes
 
         a.set_transform(self.get_transform())
@@ -1322,7 +1321,7 @@ def _parse_legend_args(axs, *args, handles=None, labels=None, **kwargs):
 
     Returns
     -------
-    handles : list of `.Artist`
+    handles : list of (`.Artist` or tuple of `.Artist`)
         The legend handles.
     labels : list of str
         The legend labels.

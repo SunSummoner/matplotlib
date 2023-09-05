@@ -339,8 +339,9 @@ def switch_backend(newbackend: str) -> None:
     old_backend = dict.__getitem__(rcParams, 'backend')
 
     module = importlib.import_module(cbook._backend_module_name(newbackend))
+    canvas_class = module.FigureCanvas
 
-    required_framework = module.FigureCanvas.required_interactive_framework
+    required_framework = canvas_class.required_interactive_framework
     if required_framework is not None:
         current_framework = cbook._get_running_interactive_framework()
         if (current_framework and required_framework
@@ -369,8 +370,6 @@ def switch_backend(newbackend: str) -> None:
     # update backend_mod accordingly; also, per-backend customization of
     # draw_if_interactive is disabled.
     if new_figure_manager is None:
-        # Only try to get the canvas class if have opted into the new scheme.
-        canvas_class = backend_mod.FigureCanvas
 
         def new_figure_manager_given_figure(num, figure):
             return canvas_class.new_manager(figure, num)
@@ -394,8 +393,7 @@ def switch_backend(newbackend: str) -> None:
 
     # If the manager explicitly overrides pyplot_show, use it even if a global
     # show is already present, as the latter may be here for backcompat.
-    manager_class = getattr(getattr(backend_mod, "FigureCanvas", None),
-                            "manager_class", None)
+    manager_class = getattr(canvas_class, "manager_class", None)
     # We can't compare directly manager_class.pyplot_show and FMB.pyplot_show because
     # pyplot_show is a classmethod so the above constructs are bound classmethods, and
     # thus always different (being bound to different classes).  We also have to use
@@ -405,6 +403,10 @@ def switch_backend(newbackend: str) -> None:
     if (show is None
             or (manager_pyplot_show is not None
                 and manager_pyplot_show != base_pyplot_show)):
+        if not manager_pyplot_show:
+            raise ValueError(
+                f"Backend {newbackend} defines neither FigureCanvas.manager_class nor "
+                f"a toplevel show function")
         _pyplot_show = cast('Any', manager_class).pyplot_show
         backend_mod.show = _pyplot_show  # type: ignore[method-assign]
 
@@ -938,7 +940,7 @@ default: None
 
         for hookspecs in rcParams["figure.hooks"]:
             module_name, dotted_name = hookspecs.split(":")
-            obj = importlib.import_module(module_name)
+            obj: Any = importlib.import_module(module_name)
             for part in dotted_name.split("."):
                 obj = getattr(obj, part)
             obj(fig)
@@ -1153,7 +1155,7 @@ def axes(
 
         - *None*: A new full window Axes is added using
           ``subplot(**kwargs)``.
-        - 4-tuple of floats *rect* = ``[left, bottom, width, height]``.
+        - 4-tuple of floats *rect* = ``(left, bottom, width, height)``.
           A new Axes is added with dimensions *rect* in normalized
           (0, 1) units using `~.Figure.add_axes` on the current figure.
 
@@ -2961,10 +2963,10 @@ def errorbar(
     elinewidth: float | None = None,
     capsize: float | None = None,
     barsabove: bool = False,
-    lolims: bool = False,
-    uplims: bool = False,
-    xlolims: bool = False,
-    xuplims: bool = False,
+    lolims: bool | ArrayLike = False,
+    uplims: bool | ArrayLike = False,
+    xlolims: bool | ArrayLike = False,
+    xuplims: bool | ArrayLike = False,
     errorevery: int | tuple[int, int] = 1,
     capthick: float | None = None,
     *,

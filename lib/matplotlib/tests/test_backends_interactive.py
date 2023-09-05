@@ -477,24 +477,27 @@ def test_webagg():
          inspect.getsource(_test_interactive_impl)
          + "\n_test_interactive_impl()", "{}"],
         env={**os.environ, "MPLBACKEND": "webagg", "SOURCE_DATE_EPOCH": "0"})
-    url = "http://{}:{}".format(
-        mpl.rcParams["webagg.address"], mpl.rcParams["webagg.port"])
+    url = f'http://{mpl.rcParams["webagg.address"]}:{mpl.rcParams["webagg.port"]}'
     timeout = time.perf_counter() + _test_timeout
-    while True:
-        try:
-            retcode = proc.poll()
-            # check that the subprocess for the server is not dead
-            assert retcode is None
-            conn = urllib.request.urlopen(url)
-            break
-        except urllib.error.URLError:
-            if time.perf_counter() > timeout:
-                pytest.fail("Failed to connect to the webagg server.")
-            else:
-                continue
-    conn.close()
-    proc.send_signal(signal.SIGINT)
-    assert proc.wait(timeout=_test_timeout) == 0
+    try:
+        while True:
+            try:
+                retcode = proc.poll()
+                # check that the subprocess for the server is not dead
+                assert retcode is None
+                conn = urllib.request.urlopen(url)
+                break
+            except urllib.error.URLError:
+                if time.perf_counter() > timeout:
+                    pytest.fail("Failed to connect to the webagg server.")
+                else:
+                    continue
+        conn.close()
+        proc.send_signal(signal.SIGINT)
+        assert proc.wait(timeout=_test_timeout) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
 
 
 def _lazy_headless():
@@ -657,7 +660,7 @@ def _test_figure_leak():
                     reason="appveyor tests fail; gh-22988 suggests reworking")
 @pytest.mark.parametrize("env", _get_testable_interactive_backends())
 @pytest.mark.parametrize("time_mem", [(0.0, 2_000_000), (0.1, 30_000_000)])
-def test_figure_leak_20490(env, time_mem):
+def test_figure_leak_20490(env, time_mem, request):
     pytest.importorskip("psutil", reason="psutil needed to run this test")
 
     # We haven't yet directly identified the leaks so test with a memory growth
@@ -666,9 +669,10 @@ def test_figure_leak_20490(env, time_mem):
     if env["MPLBACKEND"] == "wx":
         pytest.skip("wx backend is deprecated; tests failed on appveyor")
 
-    if env["MPLBACKEND"] == "macosx" or (
-            env["MPLBACKEND"] == "tkagg" and sys.platform == 'darwin'
-    ):
+    if env["MPLBACKEND"] == "macosx":
+        request.node.add_marker(pytest.mark.xfail(reason="macosx backend is leaky"))
+
+    if env["MPLBACKEND"] == "tkagg" and sys.platform == "darwin":
         acceptable_memory_leakage += 11_000_000
 
     result = _run_helper(
@@ -812,12 +816,12 @@ def _test_other_signal_before_sigint_impl(backend, target_name, kwargs):
     ('show', {'block': True}),
     ('pause', {'interval': 10})
 ])
-def test_other_signal_before_sigint(env, target, kwargs):
+def test_other_signal_before_sigint(env, target, kwargs, request):
     backend = env.get("MPLBACKEND")
     if not backend.startswith(("qt", "macosx")):
         pytest.skip("SIGINT currently only tested on qt and macosx")
-    if backend == "macosx" and target == "show":
-        pytest.xfail("test currently failing for macosx + show()")
+    if backend == "macosx":
+        request.node.add_marker(pytest.mark.xfail(reason="macosx backend is buggy"))
     proc = _WaitForStringPopen(
         [sys.executable, "-c",
          inspect.getsource(_test_other_signal_before_sigint_impl) +
